@@ -1,0 +1,3 @@
+python lock2.py
+python lock1.py
+
