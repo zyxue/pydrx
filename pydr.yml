@@ -1,20 +1,12 @@
 # PyDR Config File
 
-UTIL:
-- 
-  debug: 1
-  
-SYSTEM:
-- 
-  rootdir: ./
-  # just a name, other stuffs, if None, will be named according to naming convention by default
-  name: sq1m 
-  topology:
-  database:
-  submit_script: run.py
+debug: 1
+sysname: sq1m
+rootdir: ./
+# just a name, other stuffs, if None, will be named according to naming
+# convention by default
 
 PBS:
-- 
   -N: nodes=1:ppn=8,walltime=02:00:00
   -l: 
 
@@ -23,6 +15,10 @@ MDP:
   - 310.mdp
   - 320.mdp
   - 330.mdp
+
+MISC:
+  topology:
+  database:
 
 REPLICAS:
     00:
