@@ -1,0 +1,49 @@
+# PyDR Config File
+
+UTIL:
+- 
+  debug: 1
+  
+SYSTEM:
+- 
+  rootdir: ./
+  # just a name, other stuffs, if None, will be named according to naming convention by default
+  name: sq1m 
+  topology:
+  database:
+  submit_script: run.py
+
+PBS:
+- 
+  -N: nodes=1:ppn=8,walltime=02:00:00
+  -l: 
+
+MDP:
+  - 300.mdp
+  - 310.mdp
+  - 320.mdp
+  - 330.mdp
+
+REPLICAS:
+    00:
+    01:
+    02:
+    03:
+
+# [job]
+#     # timeout before server resubmits a job
+#     timeout = 10000
+#     # job submit script
+#     submit_script = 0_mdrun.sh
+    
+#     # this script is executed by the client for each replica
+#     # it defaults to run.sh (located in the same directory as config.ini)
+#     # replica variables are passed to this script via the client
+#     run_script = run.sh
+
+# [miscellaneous]
+#     top = ../../miscellaneous/sq1e.top
+#     temp_tuple = 300, 310, 320, 330
+#     uniform_spacing = 1, 2, 3, 4
+#     replica_tuple = 00, 01, 02, 03
+
