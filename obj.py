@@ -14,8 +14,6 @@ from sqlalchemy import orm
 
 import db_tables as dbtb
 
-DEBUG=True
-
 class Node(object):
     def __init__(self):
         self.pbs_jobid = os.getenv('PBS_JOBID', 'zyxue_JOBID')
@@ -38,6 +36,7 @@ class Node(object):
         self.db = os.path.join(rootdir, params.get('database'))
         self.topology = os.path.join(rootdir, params.get('topology'))
         self.hostfile = os.path.join(rootdir, params.get('hostfile'))
+        self.DEBUG=params['DEBUG']
 
         # sysname = params['sysname']
         # rootdir = params['rootdir']
@@ -45,7 +44,7 @@ class Node(object):
         # system = System(sysname, rootdir, misc_params)
 
         self.ip_address = socket.gethostbyname(socket.gethostname())
-        self.port = '999'                                  # can be configured
+        self.port = 1234                                    # can be configured
         
         self.start_time = time.time()
         self.walltime = 2 * 60 * 60                         # in seconds
@@ -53,7 +52,7 @@ class Node(object):
 
 class Master(Node):
     def init_db(self):
-        engine = sqlalchemy.create_engine('sqlite:///{0}'.format(self.db), echo=DEBUG)
+        engine = sqlalchemy.create_engine('sqlite:///{0}'.format(self.db), echo=self.DEBUG)
         dbtb.YoungNode.metadata.create_all(engine)          # CREATE TABLE
         S = orm.sessionmaker(bind=engine, autoflush=True, autocommit=False)
         return S
@@ -64,9 +63,8 @@ class Master(Node):
 
     def broadcast_url(self):
         """write 'ip:port' to a hostfile"""
-        if not os.path.exists(self.hostfile):
-            with open(self.hostfile, 'w') as opf:
-                opf.write("http://{0}:{1}\n".format(self.ip_address, self.port))
+        with open(self.hostfile, 'w') as opf:
+            opf.write("http://{0}:{1}\n".format(self.ip_address, self.port))
 
     def get_the_youngest_ip(self):
         session = self.connect_db()
@@ -130,7 +128,8 @@ class Master(Node):
             # maybe the new url should be broadcasted by the old server? not sure
             self.broadcast_url()
             return self.ip_address
-        app.run()
+
+        app.run(host="0.0.0.0", port=int(self.port), debug=False)
 
 class Slave(Node):
     """
@@ -156,7 +155,7 @@ class Slave(Node):
         return r.text                                       # needed to be tested
 
     def run(self, cmd):
-        returncode = subprocess.call(cmd)
+        returncode = subprocess.call(cmd, shell=True)
         return returncode
 
     def report(self, cmd):
