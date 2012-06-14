@@ -14,8 +14,6 @@ from sqlalchemy import orm
 
 import db_tables as dbtb
 
-DEBUG=True
-
 class Node(object):
     def __init__(self, **kwargs):
         self.pbs_jobid = os.getenv('PBS_JOBID', 'zyxue_JOBID')
@@ -38,6 +36,8 @@ class Node(object):
         self.db = os.path.join(rootdir, params.get('database'))
         self.topology = os.path.join(rootdir, params.get('topology'))
         self.hostfile = os.path.join(rootdir, params.get('hostfile'))
+        self.logfile = os.path.join(rootdir, params.get('logfile'))
+        self.DEBUG=params['DEBUG']
 
         # sysname = params['sysname']
         # rootdir = params['rootdir']
@@ -53,8 +53,15 @@ class Node(object):
         self.timeout = int(params['timeout']) * 60          # in seconds
         
 class Master(Node):
+    def __init__(self):
+        super(Master, self).__init__()
+        if self.DEBUG:
+            logging.basicConfig(filename=self.logfile, level=logging.DEBUG)
+        else:
+            logging.obasicConfig(filename=self.logfile, level=logging.INFO)
+
     def init_db(self):
-        engine = sqlalchemy.create_engine('sqlite:///{0}'.format(self.db), echo=DEBUG)
+        engine = sqlalchemy.create_engine('sqlite:///{0}'.format(self.db), echo=self.DEBUG)
         dbtb.YoungNode.metadata.create_all(engine)          # CREATE TABLE
         S = orm.sessionmaker(bind=engine, autoflush=True, autocommit=False)
         return S
@@ -65,9 +72,8 @@ class Master(Node):
 
     def broadcast_url(self):
         """write 'ip:port' to a hostfile"""
-        if not os.path.exists(self.hostfile):
-            with open(self.hostfile, 'w') as opf:
-                opf.write("http://{0}:{1}\n".format(self.ip_address, self.port))
+        with open(self.hostfile, 'w') as opf:
+            opf.write("http://{0}:{1}\n".format(self.ip_address, self.port))
 
     def get_the_youngest_ip(self):
         session = self.connect_db()
@@ -76,9 +82,9 @@ class Master(Node):
 
     def invite_switch(self):
         ip = self.get_the_youngest_ip()
-        r = requests.post("http://{0}:{1}/invite_switch".format(ip), self.port)
-        if r.text == ip:
-            logging.info('bigmaster switched from {0} to {1}'.format(self.ip_address, ip))
+        r = requests.get("http://{0}:{1}/invite_switch".format(ip, self.port))
+        reply = r.text
+        return reply
 
     def wakeup(self):
         app = flask.Flask(__name__)
@@ -94,7 +100,7 @@ class Master(Node):
                 flask.g.session.commit()
 
         @app.route('/imyoung', methods=["POST"])
-        def imyoung():
+        def store_imyoung():
             session = self.connect_db()
             ynode = dbtb.YoungNode(hostname=flask.request.form['hostname'],
                                    start_time=flask.request.form['start_time'],
@@ -117,21 +123,29 @@ class Master(Node):
             return "report received"
 
         @app.route('/request_switch', methods=["GET"])
-        def reply_to_request(self):
+        def reply_to_request():
             """This message must come from the slave which is on the same node"""
-            self.invite_switch()
-            return "done"
+            reply = self.invite_switch()
+            return reply
 
         @app.route('/invite_switch', methods=["GET"])
-        def reply_to_invitation(self):
+        def reply_to_invitation():
             """
             This request must come from the big master on another node,
             i.e. I am not the big master when receiving this request
             """ 
             # maybe the new url should be broadcasted by the old server? not sure
+            logging.info("Invitation For Switch Received From {0}".format(flask.request.remote_addr))
+
             self.broadcast_url()
-            return self.ip_address
-        app.run()
+
+            logging.info('Bigmaster Switch Finished: From {0} To {1}'.format(flask.request.remote_addr, self.ip_address))
+            return "SWITCH_FINISHED"
+
+        if self.DEBUG:
+            app.run(host="127.0.0.1", port=int(self.port), debug=True)
+        else:
+            app.run(host="0.0.0.0", port=int(self.port), debug=False)
 
 class Slave(Node):
     """
@@ -139,8 +153,8 @@ class Slave(Node):
     database) other than run the command received from Master, and report to
     the master when finished, then such cycle repeated until it dies
     """
-    def say_i_am_young(self):
-        url = self.get_url(self.hostfile)
+    def say_imyoung(self):
+        url = self.get_url()
         params = {'hostname': self.hostname,
                   'start_time': self.start_time,
                   'ip_address': self.ip_address}
@@ -152,12 +166,12 @@ class Slave(Node):
         return url
 
     def get_cmd(self):
-        url = self.get_url(self.hostfile)
+        url = self.get_url()
         r = requests.get("{0}/get_cmd".format(url))
         return r.text                                       # needed to be tested
 
     def run(self, cmd):
-        returncode = subprocess.call(cmd)
+        returncode = subprocess.call(cmd, shell=True)
         return returncode
 
     def report(self, cmd):
@@ -176,10 +190,10 @@ class Slave(Node):
 
     def request_switch(self):
         """
-        request the big master, which should be on the same node with this
-        slave to invite another node for switch
+        request the big master on the same node with this slave to invite
+        another node for switch
         """
-        url = self.get_url(self.hostfile)
+        url = self.get_url()
         r = requests.get("{0}/request_switch".format(url))
         return r.text
 
