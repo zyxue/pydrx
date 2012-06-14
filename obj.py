@@ -17,7 +17,7 @@ import db_tables as dbtb
 DEBUG=True
 
 class Node(object):
-    def __init__(self):
+    def __init__(self, **kwargs):
         self.pbs_jobid = os.getenv('PBS_JOBID', 'zyxue_JOBID')
         self.pbs_jobname = os.getenv('PBS_JOBNAME', 'zyxue_JOBNAME')
         self.pbs_num_nodes = os.getenv('PBS_NUM_NODES', 'zyxue_NUM_NODES')
@@ -45,12 +45,13 @@ class Node(object):
         # system = System(sysname, rootdir, misc_params)
 
         self.ip_address = socket.gethostbyname(socket.gethostname())
-        self.port = '999'                                  # can be configured
+        self.port = kwargs.get("port", 1234)                # can be configured
         
         self.start_time = time.time()
-        self.walltime = 2 * 60 * 60                         # in seconds
+        self.walltime = int(params['walltime']) * 60        # in seconds
         self.estimated_end_time = self.start_time + self.walltime
-
+        self.timeout = int(params['timeout']) * 60          # in seconds
+        
 class Master(Node):
     def init_db(self):
         engine = sqlalchemy.create_engine('sqlite:///{0}'.format(self.db), echo=DEBUG)
