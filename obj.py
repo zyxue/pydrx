@@ -4,6 +4,7 @@ import os
 import time
 import socket
 import logging
+import threading
 import subprocess
 
 import yaml
@@ -43,22 +44,33 @@ class Node(object):
         # rootdir = params['rootdir']
         # misc_params = params['MISC']
         # system = System(sysname, rootdir, misc_params)
+        if self.DEBUG:
+            self.ip_addr = "127.0.0.1"
+        else:
+            self.ip_addr = socket.gethostbyname(socket.gethostname())
+        self.port = int(kwargs.get("port", 1234))                # can be configured
 
-        self.ip_address = socket.gethostbyname(socket.gethostname())
-        self.port = kwargs.get("port", 1234)                # can be configured
-        
         self.start_time = time.time()
         self.walltime = int(params['walltime']) * 60        # in seconds
         self.estimated_end_time = self.start_time + self.walltime
         self.timeout = int(params['timeout']) * 60          # in seconds
         
+    def __repr__(self):
+        # this is the same as that for dbtb.YoungNode
+        return "<YoungNode {0} started at {1} ({2}:{3})>".format(
+            self.hostname, 
+            time.strftime("%a, %d %b %Y %H:%M:%S", time.localtime(self.start_time)),
+            self.ip_addr, self.port)
+
 class Master(Node):
-    def __init__(self):
-        super(Master, self).__init__()
+    def __init__(self, **kwargs):
+        super(Master, self).__init__(**kwargs)
+        # logger = logging.getLogger(__name__)
+        logging.basicConfig(format='%(asctime)s %(message)s', filename=self.logfile)
         if self.DEBUG:
-            logging.basicConfig(filename=self.logfile, level=logging.DEBUG)
+            logging.basicConfig(level=logging.DEBUG)
         else:
-            logging.obasicConfig(filename=self.logfile, level=logging.INFO)
+            logging.basicConfig(level=logging.INFO)
 
     def init_db(self):
         engine = sqlalchemy.create_engine('sqlite:///{0}'.format(self.db), echo=self.DEBUG)
@@ -73,16 +85,18 @@ class Master(Node):
     def broadcast_url(self):
         """write 'ip:port' to a hostfile"""
         with open(self.hostfile, 'w') as opf:
-            opf.write("http://{0}:{1}\n".format(self.ip_address, self.port))
+            opf.write("http://{0}:{1}\n".format(self.ip_addr, self.port))
 
-    def get_the_youngest_ip(self):
+    def get_the_youngest_node(self):
         session = self.connect_db()
-        item = session.query(dbtb.YoungNode).order_by("start_time desc").first()
-        return item.ip_address
+        n = session.query(dbtb.YoungNode).order_by("start_time desc").first()
+        logging.info("YOUNGEST NODE FOUND: {0} for {1})".format(n, self.__repr__()))
+        return n
 
     def invite_switch(self):
-        ip = self.get_the_youngest_ip()
-        r = requests.get("http://{0}:{1}/invite_switch".format(ip, self.port))
+        n = self.get_the_youngest_node()
+        url = "{0}:{1}".format(n.ip_addr, n.port)
+        r = requests.post("http://{0}/invite_switch".format(url), data={"n":repr(n)})
         reply = r.text
         return reply
 
@@ -104,10 +118,13 @@ class Master(Node):
             session = self.connect_db()
             ynode = dbtb.YoungNode(hostname=flask.request.form['hostname'],
                                    start_time=flask.request.form['start_time'],
-                                   ip_address=flask.request.form['ip_address'])
+                                   ip_addr=flask.request.form['ip_addr'],
+                                   port=int(flask.request.form['port']))
             session.add(ynode)
             session.commit()
-            return self.estimated_end_time
+            message = "YoungNode RECORDED: {0}".format(ynode)
+            logging.info(message)
+            return message
 
         @app.route('/get_cmd', methods=["GET"])
         def dispatch_cmd():
@@ -124,23 +141,30 @@ class Master(Node):
 
         @app.route('/request_switch', methods=["GET"])
         def reply_to_request():
-            """This message must come from the slave which is on the same node"""
-            reply = self.invite_switch()
-            return reply
+            message = "REQUEST RECEIVED"
+            logging.info("{0} from bigslave ({1})".format(
+                    message, flask.request.headers.get("Host")))
+            self.invite_switch()
+            # t = threading.Thread(target=self.invite_switch)
+            # t.start()
+            return message
 
-        @app.route('/invite_switch', methods=["GET"])
+        @app.route('/invite_switch', methods=["POST"])
         def reply_to_invitation():
             """
             This request must come from the big master on another node,
             i.e. I am not the big master when receiving this request
             """ 
-            # maybe the new url should be broadcasted by the old server? not sure
-            logging.info("Invitation For Switch Received From {0}".format(flask.request.remote_addr))
+            n = flask.request.form['n']
+            logging.info("INVITATION RECEIVED for switch from {0} at {1}".format(
+                    n, self.__repr__()))
 
             self.broadcast_url()
 
-            logging.info('Bigmaster Switch Finished: From {0} To {1}'.format(flask.request.remote_addr, self.ip_address))
-            return "SWITCH_FINISHED"
+            message = "SWITCH FINISHED"
+            logging.info('{0}: From {1} To {2}'.format(
+                    message, n, self.__repr__()))
+            return message
 
         if self.DEBUG:
             app.run(host="127.0.0.1", port=int(self.port), debug=True)
@@ -153,12 +177,14 @@ class Slave(Node):
     database) other than run the command received from Master, and report to
     the master when finished, then such cycle repeated until it dies
     """
-    def say_imyoung(self):
-        url = self.get_url()
+    def say_imyoung(self, uri=None):
+        url = uri if uri else self.get_url()
         params = {'hostname': self.hostname,
                   'start_time': self.start_time,
-                  'ip_address': self.ip_address}
-        requests.post("{0}/imyoung".format(url), data=params)
+                  'ip_addr': self.ip_addr,
+                  'port': self.port,}
+        r = requests.post("{0}/imyoung".format(url), data=params)
+        return r.text
 
     def get_url(self):
         with open(self.hostfile) as f:
@@ -178,7 +204,8 @@ class Slave(Node):
         report_params = self.gen_report(cmd)
         url = self.get_url()
         r = requests.post("{0}/report".format(url), data=report_params)
-        return r
+        reply = r.text                             # could be "report received"
+        return r.text
 
     def gen_report(self, cmd):
         # e.g. xtc, tpr, edr, log, parsing is based on the cmd

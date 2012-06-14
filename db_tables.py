@@ -13,15 +13,17 @@ class YoungNode(Base):
     ID = Column(Integer, primary_key=True)
     hostname = Column(String)
     start_time = Column(Float)
-    ip_address = Column(String)
+    ip_addr = Column(String)
+    port = Column(Integer)
 
-    def __init__(self, hostname, start_time, ip_address):
+    def __init__(self, hostname, start_time, ip_addr, port):
         self.hostname = hostname
         self.start_time = start_time
-        self.ip_address = ip_address
+        self.ip_addr = ip_addr
+        self.port = port
 
     def __repr__(self):
-        return "<YoungNode {0} started at {1} ({2})>".format(
+        return "<YoungNode {0} started at {1} ({2}:{3})>".format(
             self.hostname, 
             time.strftime("%a, %d %b %Y %H:%M:%S", time.localtime(self.start_time)),
-            self.ip_address)
+            self.ip_addr, self.port)
