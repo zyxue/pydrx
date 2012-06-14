@@ -1,8 +1,11 @@
-# PyDR Config File
+# The path of this yaml should not be changed arbitrarily
 
 debug: 1
 sysname: sq1m
-rootdir: ./
+topology: sq1m.top
+database: sq1m.db
+hostfile: sq1m.hostfile
+
 # just a name, other stuffs, if None, will be named according to naming
 # convention by default
 
@@ -15,10 +18,6 @@ MDP:
   - 310.mdp
   - 320.mdp
   - 330.mdp
-
-MISC:
-  topology:
-  database:
 
 REPLICAS:
     00:
