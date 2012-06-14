@@ -137,8 +137,8 @@ class Slave(Node):
     database) other than run the command received from Master, and report to
     the master when finished, then such cycle repeated until it dies
     """
-    def say_i_am_young(self):
-        url = self.get_url(self.hostfile)
+    def say_imyoung(self):
+        url = self.get_url()
         params = {'hostname': self.hostname,
                   'start_time': self.start_time,
                   'ip_address': self.ip_address}
@@ -150,7 +150,7 @@ class Slave(Node):
         return url
 
     def get_cmd(self):
-        url = self.get_url(self.hostfile)
+        url = self.get_url()
         r = requests.get("{0}/get_cmd".format(url))
         return r.text                                       # needed to be tested
 
