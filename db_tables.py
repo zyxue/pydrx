@@ -25,5 +25,5 @@ class YoungNode(Base):
     def __repr__(self):
         return "<YoungNode {0} started at {1} ({2}:{3})>".format(
             self.hostname, 
-            time.strftime("%a, %d %b %Y %H:%M:%S", time.localtime(self.start_time)),
+            time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self.start_time)),
             self.ip_addr, self.port)
