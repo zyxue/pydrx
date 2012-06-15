@@ -56,21 +56,26 @@ class Node(object):
         self.timeout = int(params['timeout']) * 60          # in seconds
         
     def __repr__(self):
-        # this is the same as that for dbtb.YoungNode
-        return "<YoungNode {0} started at {1} ({2}:{3})>".format(
+        return "<{0} started at {1} ({2}:{3})>".format(
             self.hostname, 
-            time.strftime("%a, %d %b %Y %H:%M:%S", time.localtime(self.start_time)),
+            time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self.start_time)),
             self.ip_addr, self.port)
 
 class Master(Node):
     def __init__(self, **kwargs):
         super(Master, self).__init__(**kwargs)
-        # logger = logging.getLogger(__name__)
-        logging.basicConfig(format='%(asctime)s %(message)s', filename=self.logfile)
+        logger = logging.getLogger(__name__)
+        ch = logging.FileHandler(filename=self.logfile, mode='a')
+        fm = logging.Formatter('%(asctime)s- %(message)s')
+        ch.setFormatter(fm)
         if self.DEBUG:
-            logging.basicConfig(level=logging.DEBUG)
+            logger.setLevel(logging.DEBUG)
+            ch.setLevel(logging.DEBUG)
         else:
-            logging.basicConfig(level=logging.INFO)
+            logger.setLevel(logging.INFO)
+            ch.setLevel(logging.INFO)
+        logger.addHandler(ch)
+        self.logger = logger
 
     def init_db(self):
         engine = sqlalchemy.create_engine('sqlite:///{0}'.format(self.db), echo=self.DEBUG)
@@ -90,15 +95,14 @@ class Master(Node):
     def get_the_youngest_node(self):
         session = self.connect_db()
         n = session.query(dbtb.YoungNode).order_by("start_time desc").first()
-        logging.info("YOUNGEST NODE FOUND: {0} for {1})".format(n, self.__repr__()))
         return n
 
     def invite_switch(self):
         n = self.get_the_youngest_node()
+        if n:
+            self.logger.info("{0:25s}: {1}".format("YOUNGEST NODE FOUND", n))
         url = "{0}:{1}".format(n.ip_addr, n.port)
-        r = requests.post("http://{0}/invite_switch".format(url), data={"n":repr(n)})
-        reply = r.text
-        return reply
+        requests.post("http://{0}/invite_switch".format(url), data={"n":repr(n)})
 
     def wakeup(self):
         app = flask.Flask(__name__)
@@ -122,8 +126,8 @@ class Master(Node):
                                    port=int(flask.request.form['port']))
             session.add(ynode)
             session.commit()
-            message = "YoungNode RECORDED: {0}".format(ynode)
-            logging.info(message)
+            message = "{0:25s}: {1}".format("YoungNode RECORDED", ynode)
+            self.logger.info(message)
             return message
 
         @app.route('/get_cmd', methods=["GET"])
@@ -139,11 +143,11 @@ class Master(Node):
             # here.
             return "report received"
 
-        @app.route('/request_switch', methods=["GET"])
+        @app.route('/request_switch', methods=["POST"])
         def reply_to_request():
-            message = "REQUEST RECEIVED"
-            logging.info("{0} from bigslave ({1})".format(
-                    message, flask.request.headers.get("Host")))
+            message = "SWITCH REQUEST RECEIVED"
+            n = flask.request.form['n']
+            self.logger.info("{0:25s}: from {1}".format(message, n))
             self.invite_switch()
             # t = threading.Thread(target=self.invite_switch)
             # t.start()
@@ -156,13 +160,13 @@ class Master(Node):
             i.e. I am not the big master when receiving this request
             """ 
             n = flask.request.form['n']
-            logging.info("INVITATION RECEIVED for switch from {0} at {1}".format(
-                    n, self.__repr__()))
+            self.logger.info("{0:25s}: for switch from {1}".format(
+                    "INVITATION RECEIVED", n, self.__repr__()))
 
             self.broadcast_url()
 
             message = "SWITCH FINISHED"
-            logging.info('{0}: From {1} To {2}'.format(
+            self.logger.info('{0:25s}: From {1} To {2}'.format(
                     message, n, self.__repr__()))
             return message
 
@@ -205,7 +209,7 @@ class Slave(Node):
         url = self.get_url()
         r = requests.post("{0}/report".format(url), data=report_params)
         reply = r.text                             # could be "report received"
-        return r.text
+        return reply
 
     def gen_report(self, cmd):
         # e.g. xtc, tpr, edr, log, parsing is based on the cmd
@@ -221,7 +225,7 @@ class Slave(Node):
         another node for switch
         """
         url = self.get_url()
-        r = requests.get("{0}/request_switch".format(url))
+        r = requests.post("{0}/request_switch".format(url), data={"n":self.__repr__()})
         return r.text
 
 # class System(object):
